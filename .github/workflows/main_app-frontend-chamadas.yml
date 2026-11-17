@@ -1,0 +1,65 @@
+name: Build and deploy frontend to Azure App Service - app-frontend-chamadas
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: |
+            frontend/host/package-lock.json
+            frontend/alunos/package-lock.json
+            frontend/chamadas/package-lock.json
+            frontend/registro-presenca/package-lock.json
+
+      # Somente o HOST é publicado. Os 3 MFEs são compilados e servidos como arquivos
+      # estáticos dentro do próprio host (/remotes/<mfe>/assets/remoteEntry.js), na mesma origem.
+      - name: Build All Microfrontends and Aggregate
+        env:
+          # URL do API Gateway: Settings > Secrets and variables > Actions > Variables (VITE_API_URL).
+          VITE_API_URL: ${{ vars.VITE_API_URL }}
+        run: |
+          set -e
+          test -n "$VITE_API_URL" || { echo "Variável VITE_API_URL não criada no repositório"; exit 1; }
+          cd frontend
+
+          # 1. Compila os Microfrontends
+          (cd alunos && npm ci && npm run build)
+          (cd chamadas && npm ci && npm run build)
+          (cd registro-presenca && npm ci && npm run build)
+
+          # 2. Compila o Host
+          (cd host && npm ci && npm run build)
+
+          # 3. Copia SOMENTE os assets dos MFEs para dentro do host
+          mkdir -p host/dist/remotes/alunos host/dist/remotes/chamadas host/dist/remotes/registro
+          cp -r alunos/dist/assets host/dist/remotes/alunos/
+          cp -r chamadas/dist/assets host/dist/remotes/chamadas/
+          cp -r registro-presenca/dist/assets host/dist/remotes/registro/
+
+          # 4. Falha o deploy se algum remoteEntry.js não existir (evita publicar um site quebrado)
+          for mfe in alunos chamadas registro; do
+            test -f "host/dist/remotes/$mfe/assets/remoteEntry.js" || { echo "remoteEntry.js ausente em $mfe"; exit 1; }
+          done
+
+      # Autenticação pelo perfil de publicação do App Service (secret AZURE_PUBLISH_PROFILE_FRONTEND)
+      - name: Deploy to Azure Web App
+        uses: azure/webapps-deploy@v3
+        with:
+          app-name: 'app-frontend-chamadas'
+          publish-profile: ${{ secrets.AZURE_PUBLISH_PROFILE_FRONTEND }}
+          package: ./frontend/host/dist
