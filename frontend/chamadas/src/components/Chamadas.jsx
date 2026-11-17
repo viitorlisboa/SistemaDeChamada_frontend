@@ -1,5 +1,6 @@
 import { Suspense, useCallback, useEffect, useState } from 'react'
 import { fetchWithAuth, getJson, getUsuario, lerErro } from '../api/fetchWithAuth'
+import GestaoTurmas from './GestaoTurmas'
 import './Chamadas.css'
 
 // Rotas unificadas no Gateway
@@ -40,6 +41,7 @@ function traduzirStatus(status) {
 function Chamadas({ RegistroPresenca, usuario: usuarioProp }) {
   const usuario = usuarioProp || getUsuario()
   const podeGerenciar = usuario?.role === 'ADMIN' || usuario?.role === 'PROFESSOR'
+  const ehAdmin = usuario?.role === 'ADMIN'
 
   const [turmas, setTurmas] = useState([])
   const [aulas, setAulas] = useState([])
@@ -47,6 +49,7 @@ function Chamadas({ RegistroPresenca, usuario: usuarioProp }) {
   const [erro, setErro] = useState('')
   const [mensagem, setMensagem] = useState('')
   const [aulaSelecionada, setAulaSelecionada] = useState(null)
+  const [painelTurmasAberto, setPainelTurmasAberto] = useState(false)
 
   const [formularioAberto, setFormularioAberto] = useState(false)
   const [salvando, setSalvando] = useState(false)
@@ -61,6 +64,8 @@ function Chamadas({ RegistroPresenca, usuario: usuarioProp }) {
     try {
       const dadosTurmas = await getJson(TURMAS_API, 'Não foi possível carregar as turmas.')
       setTurmas(dadosTurmas)
+      setTurmaId((atual) => (dadosTurmas.some((t) => String(t.id) === atual) ? atual
+        : dadosTurmas.length === 1 ? String(dadosTurmas[0].id) : ''))
 
       const chamadasPorTurma = await Promise.all(
         dadosTurmas.map(async (turma) => {
@@ -174,6 +179,17 @@ function Chamadas({ RegistroPresenca, usuario: usuarioProp }) {
         <div className="chamadas-header-acoes">
           <span className="total-aulas">{aulas.length} chamadas</span>
 
+          {ehAdmin && (
+            <button
+              type="button"
+              className="botao-secundario-chamada"
+              onClick={() => setPainelTurmasAberto(!painelTurmasAberto)}
+              aria-expanded={painelTurmasAberto}
+            >
+              {painelTurmasAberto ? 'Fechar turmas' : 'Gerenciar turmas'}
+            </button>
+          )}
+
           {podeGerenciar && (
             <button
               type="button"
@@ -181,9 +197,16 @@ function Chamadas({ RegistroPresenca, usuario: usuarioProp }) {
               onClick={() => {
                 setErro('')
                 setMensagem('')
+                if (turmas.length === 0) {
+                  // Sem turma não há chamada: explica em vez de deixar o botão "morto"
+                  setErro(ehAdmin
+                    ? 'Crie uma turma em "Gerenciar turmas" antes de criar a primeira chamada.'
+                    : 'Você ainda não tem turmas atribuídas. Peça ao administrador para criar uma turma com o seu nome.')
+                  if (ehAdmin) setPainelTurmasAberto(true)
+                  return
+                }
                 setFormularioAberto(!formularioAberto)
               }}
-              disabled={turmas.length === 0}
             >
               + Criar chamada
             </button>
@@ -194,7 +217,11 @@ function Chamadas({ RegistroPresenca, usuario: usuarioProp }) {
       {mensagem && <p className="chamadas-sucesso" role="status">{mensagem}</p>}
       {erro && <p className="chamadas-erro" role="alert">{erro}</p>}
 
-      {podeGerenciar && formularioAberto && (
+      {ehAdmin && painelTurmasAberto && (
+        <GestaoTurmas turmas={turmas} onAlterado={carregarDados} />
+      )}
+
+      {podeGerenciar && formularioAberto && turmas.length > 0 && (
         <div className="criar-chamada-card">
           <h3>Nova chamada</h3>
 
@@ -241,7 +268,7 @@ function Chamadas({ RegistroPresenca, usuario: usuarioProp }) {
         <p>
           {usuario?.role === 'PROFESSOR'
             ? 'Você ainda não tem turmas atribuídas.'
-            : 'Nenhuma turma cadastrada. Cadastre uma turma antes de criar chamadas.'}
+            : 'Nenhuma turma cadastrada. Use “Gerenciar turmas” para criar a primeira e depois crie a chamada.'}
         </p>
       )}
 

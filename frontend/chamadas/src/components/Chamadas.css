@@ -321,3 +321,171 @@
 .aula-acoes .botao-excluir-chamada:hover {
   background: #fef2f2;
 }
+
+/* ---------- Gerenciar turmas (ADMIN) ---------- */
+.botao-secundario-chamada {
+  padding: 10px 14px;
+  border: 1px solid #c7d2fe;
+  border-radius: 8px;
+  background: #fff;
+  color: #4338ca;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.botao-secundario-chamada:hover {
+  background: #eef2ff;
+}
+
+.turmas-painel {
+  margin-bottom: 24px;
+  padding: 24px;
+  background: #fff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
+}
+
+.turmas-painel h3 {
+  margin: 0 0 6px;
+  color: #1f2937;
+}
+
+.turmas-painel h4 {
+  margin: 0 0 12px;
+  color: #374151;
+  font-size: 15px;
+}
+
+.turmas-ajuda {
+  margin: 0 0 16px;
+  color: #6b7280;
+  font-size: 14px;
+}
+
+.turmas-formularios {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 16px;
+  margin-bottom: 24px;
+}
+
+.turmas-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 16px;
+  border: 1px solid #f3f4f6;
+  border-radius: 10px;
+  background: #f9fafb;
+}
+
+.turmas-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #374151;
+}
+
+.turmas-form input,
+.turmas-form select {
+  box-sizing: border-box;
+  width: 100%;
+  padding: 9px 11px;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: #fff;
+  font-family: inherit;
+  font-size: 14px;
+}
+
+.turmas-form button {
+  align-self: flex-start;
+}
+
+.turmas-subtitulo {
+  margin-top: 4px;
+}
+
+.turmas-lista {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.turma-item {
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+
+.turma-linha {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+}
+
+.turma-linha strong {
+  display: block;
+  color: #1f2937;
+}
+
+.turma-linha span {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.turma-botoes,
+.turma-aluno {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.turma-botoes button,
+.turma-aluno button {
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  border-radius: 6px;
+  padding: 6px 10px;
+  font-weight: 600;
+  color: #4338ca;
+  cursor: pointer;
+}
+
+.turma-botoes .turma-excluir,
+.turma-aluno button.remover {
+  color: #b91c1c;
+}
+
+.turma-botoes button:disabled,
+.turma-aluno button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.turma-alunos {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid #f3f4f6;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.turma-aluno {
+  justify-content: space-between;
+  font-size: 14px;
+  color: #374151;
+}
+
+.turma-aluno small {
+  color: #9ca3af;
+}

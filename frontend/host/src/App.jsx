@@ -27,18 +27,19 @@ const Alunos = lazyRemoto(() => import('alunos/Alunos'))
 const Chamadas = lazyRemoto(() => import('chamadas/Chamadas'))
 const RegistroPresenca = lazyRemoto(() => import('registroPresenca/RegistroPresenca'))
 
-// Abas visíveis por perfil (o backend aplica as mesmas regras; aqui só escondemos o que não se pode usar)
+// Abas visíveis por perfil, na ordem do header (a primeira é a que abre ao entrar).
+// O backend aplica as mesmas regras; aqui só escondemos o que não se pode usar.
+// Na aba Alunos: ADMIN vê todos, PROFESSOR vê os alunos das suas turmas e ALUNO vê só os próprios dados.
 const ABAS_POR_PERFIL = {
-  ADMIN: ['chamadas', 'alunos', 'usuarios'],
-  PROFESSOR: ['chamadas', 'alunos'],
-  ALUNO: ['meus-dados'],
+  ADMIN: ['alunos', 'chamadas', 'usuarios'],
+  PROFESSOR: ['alunos', 'chamadas'],
+  ALUNO: ['alunos'],
 }
 
 const ROTULOS = {
-  chamadas: 'Chamadas',
   alunos: 'Alunos',
+  chamadas: 'Chamadas',
   usuarios: 'Usuários',
-  'meus-dados': 'Meus dados',
 }
 
 const PERFIS = {
@@ -133,7 +134,7 @@ function App() {
           <RemoteBoundary key={aba} nome={ROTULOS[aba]}>
             <Suspense fallback={<div className="carregando-mfe">Carregando módulo...</div>}>
               {aba === 'chamadas' && <Chamadas RegistroPresenca={RegistroPresenca} usuario={dadosUsuario} />}
-              {(aba === 'alunos' || aba === 'meus-dados') && <Alunos usuario={dadosUsuario} />}
+              {aba === 'alunos' && <Alunos usuario={dadosUsuario} />}
             </Suspense>
           </RemoteBoundary>
         )}

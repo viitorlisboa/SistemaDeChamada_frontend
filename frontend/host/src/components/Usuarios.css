@@ -86,6 +86,61 @@
   font-family: inherit;
 }
 
+.usuarios-perfis {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+
+.usuarios-perfil {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: 12px 14px;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  background: #ffffff;
+  cursor: pointer;
+  font-family: inherit;
+  color: #374151;
+}
+
+.usuarios-perfil strong {
+  font-size: 15px;
+}
+
+.usuarios-perfil span {
+  font-size: 13px;
+  color: #6b7280;
+}
+
+.usuarios-perfil:hover {
+  border-color: #c7d2fe;
+}
+
+.usuarios-perfil.ativo {
+  border-color: #4f46e5;
+  background: #eef2ff;
+  box-shadow: 0 0 0 1px #4f46e5;
+}
+
+.usuarios-secao {
+  border: none;
+  padding: 0;
+  margin: 0 0 6px;
+}
+
+.usuarios-secao legend {
+  font-size: 13px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #6b7280;
+  margin-bottom: 10px;
+}
+
 .usuarios-botao {
   border: none;
   border-radius: 8px;
