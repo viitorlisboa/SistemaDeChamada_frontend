@@ -23,19 +23,22 @@ function GestaoTurmas({ turmas, onAlterado }) {
   const [erro, setErro] = useState('')
   const [mensagem, setMensagem] = useState('')
 
+  // Cada lista é carregada de forma independente: se um serviço falhar (ex.: aluno-service fora do ar),
+  // as outras listas continuam aparecendo e o erro diz exatamente qual delas não veio.
   const carregarCadastros = useCallback(async () => {
-    try {
-      const [listaDisciplinas, listaProfessores, listaAlunos] = await Promise.all([
-        getJson(DISCIPLINAS_API, 'Não foi possível carregar as disciplinas.'),
-        getJson(PROFESSORES_API, 'Não foi possível carregar os professores.'),
-        getJson(ALUNOS_API, 'Não foi possível carregar os alunos.'),
-      ])
-      setDisciplinas(listaDisciplinas)
-      setProfessores(listaProfessores)
-      setAlunos(listaAlunos)
-    } catch (e) {
-      setErro(e.message)
-    }
+    const [resDisciplinas, resProfessores, resAlunos] = await Promise.allSettled([
+      getJson(DISCIPLINAS_API, 'Não foi possível carregar as disciplinas.'),
+      getJson(PROFESSORES_API, 'Não foi possível carregar os professores.'),
+      getJson(ALUNOS_API, 'Não foi possível carregar os alunos.'),
+    ])
+    const falhas = []
+    if (resDisciplinas.status === 'fulfilled') setDisciplinas(resDisciplinas.value)
+    else falhas.push(`Disciplinas: ${resDisciplinas.reason.message}`)
+    if (resProfessores.status === 'fulfilled') setProfessores(resProfessores.value)
+    else falhas.push(`Professores: ${resProfessores.reason.message}`)
+    if (resAlunos.status === 'fulfilled') setAlunos(resAlunos.value)
+    else falhas.push(`Alunos: ${resAlunos.reason.message}`)
+    if (falhas.length) setErro(falhas.join(' | '))
   }, [])
 
   useEffect(() => {

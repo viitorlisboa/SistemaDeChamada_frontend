@@ -55,23 +55,25 @@ function Usuarios() {
   const [erro, setErro] = useState('')
   const [mensagem, setMensagem] = useState('')
 
+  // Listas carregadas de forma independente: se o aluno-service ou o turma-service falhar,
+  // a lista de usuários continua aparecendo e o erro diz qual serviço não respondeu.
   const carregar = useCallback(async () => {
     setCarregando(true)
     setErro('')
-    try {
-      const [listaUsuarios, listaAlunos, listaProfessores] = await Promise.all([
-        getJson(USUARIOS_API, 'Não foi possível carregar os usuários.'),
-        getJson(ALUNOS_API, 'Não foi possível carregar os alunos.'),
-        getJson(PROFESSORES_API, 'Não foi possível carregar os professores.'),
-      ])
-      setUsuarios(listaUsuarios)
-      setAlunos(listaAlunos)
-      setProfessores(listaProfessores)
-    } catch (e) {
-      setErro(e.message)
-    } finally {
-      setCarregando(false)
-    }
+    const [resUsuarios, resAlunos, resProfessores] = await Promise.allSettled([
+      getJson(USUARIOS_API, 'Não foi possível carregar os usuários.'),
+      getJson(ALUNOS_API, 'Não foi possível carregar os alunos.'),
+      getJson(PROFESSORES_API, 'Não foi possível carregar os professores.'),
+    ])
+    const falhas = []
+    if (resUsuarios.status === 'fulfilled') setUsuarios(resUsuarios.value)
+    else falhas.push(`Usuários: ${resUsuarios.reason.message}`)
+    if (resAlunos.status === 'fulfilled') setAlunos(resAlunos.value)
+    else falhas.push(`Alunos: ${resAlunos.reason.message}`)
+    if (resProfessores.status === 'fulfilled') setProfessores(resProfessores.value)
+    else falhas.push(`Professores: ${resProfessores.reason.message}`)
+    if (falhas.length) setErro(falhas.join(' | '))
+    setCarregando(false)
   }, [])
 
   useEffect(() => {
