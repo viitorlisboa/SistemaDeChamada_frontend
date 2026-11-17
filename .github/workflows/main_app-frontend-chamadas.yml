@@ -31,10 +31,27 @@ jobs:
       - name: Build All Microfrontends and Aggregate
         env:
           # URL do API Gateway: Settings > Secrets and variables > Actions > Variables (VITE_API_URL).
-          VITE_API_URL: ${{ vars.VITE_API_URL }}
+          # Aceita também um Secret com o mesmo nome, caso tenha sido criado na aba errada.
+          VITE_API_URL_ORIGINAL: ${{ vars.VITE_API_URL || secrets.VITE_API_URL }}
         run: |
           set -e
-          test -n "$VITE_API_URL" || { echo "Variável VITE_API_URL não criada no repositório"; exit 1; }
+
+          # Normaliza a URL do gateway: tira espaços e barra final e força https.
+          # O site é servido em https; uma URL http é bloqueada pelo navegador (mixed content).
+          URL="$(echo "$VITE_API_URL_ORIGINAL" | tr -d '[:space:]')"
+          test -n "$URL" || { echo "Variável VITE_API_URL não criada no repositório"; exit 1; }
+          URL="${URL%/}"
+          URL="${URL%/api}"
+          case "$URL" in
+            https://*) ;;
+            http://*)  URL="https://${URL#http://}" ;;
+            *)         URL="https://$URL" ;;
+          esac
+          case "$URL" in
+            *localhost*|*127.0.0.1*) echo "VITE_API_URL aponta para localhost: $URL"; exit 1 ;;
+          esac
+          export VITE_API_URL="$URL"
+          echo "Gateway usado no build: $VITE_API_URL"
           cd frontend
 
           # 1. Compila os Microfrontends
