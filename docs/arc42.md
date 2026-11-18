@@ -11,18 +11,18 @@ title: Documentação de Arquitetura de Software - Sistema de Controle de Chamad
 
 * **Vitor de Oliveira Lisboa**
 
-> **Versão 2.1 — atualizada em 15/11/2026.** Este documento é o mesmo nos três repositórios (`SistemaDeChamada_api-gateway`, `SistemaDeChamada_backend`, `SistemaDeChamada_frontend`), em `docs/arc42.md`. O histórico de alterações está na seção 13.
+> **Versão 2.2 — atualizada em 17/11/2026.** Este documento é o mesmo nos três repositórios (`SistemaDeChamada_api-gateway`, `SistemaDeChamada_backend`, `SistemaDeChamada_frontend`), em `docs/arc42.md`. O histórico de alterações está na seção 13.
 
-## Status Atual do Projeto (15/11/2026)
+## Status Atual do Projeto (17/11/2026)
 
-Na versão 2.1 o `chamada-service` foi **incorporado ao `turma-service`** (ver ADR-12). O backend passa a ter **3 serviços**: `api-gateway`, `aluno-service` e `turma-service`. Toda a infraestrutura será recriada do zero em uma nova assinatura Azure de estudante.
+O sistema está **implantado e funcionando na nova assinatura Azure de estudante** (região `mexicocentral`), com 3 serviços de backend (`api-gateway`, `aluno-service` e `turma-service`; o `chamada-service` foi incorporado ao `turma-service`, ver ADR-12) e o frontend publicado em um **App Service**, porque o Azure Static Web Apps não pode ser criado nas regiões liberadas para a assinatura de estudante (ver ADR-13). A demonstração em vídeo está em https://youtu.be/aqNFj_S9aUA.
 
 | Componente | Hospedagem | Situação |
 | ----- | ----- | ----- |
-| **Frontend** (`host` + 3 microfrontends) | Azure Static Web Apps (somente o `host`) | Pronto; telas por perfil, sessão com expiração e presença em lote. Sem alteração de rotas com a fusão (tudo passa pelo Gateway) |
-| **`api-gateway`** (BFF) | Azure App Service + Azure SQL (usuários) | Pronto; `/api/chamadas/**` e `/api/presencas/**` agora roteados para o `turma-service`; origem do frontend configurável (`FRONTEND_URL`) |
-| **`aluno-service`** | Azure App Service + Azure Cosmos DB (API MongoDB) | Pronto; consome o evento `ChamadaFinalizada` |
-| **`turma-service`** | Azure App Service + Azure SQL | Pronto; turmas, matrículas, **chamadas e presenças**; publica `ChamadaFinalizada` via Outbox |
+| **Frontend** (`host` + 3 microfrontends) | Azure App Service (Node 20, `pm2 serve --spa`), somente o `host` | Pronto; abas por perfil (Alunos → Chamadas → Usuários), cadastro unificado de usuários, gestão de turmas e matrículas, presença em lote |
+| **`api-gateway`** (BFF) | Azure App Service + Azure SQL (`gateway-db`) | Pronto; login JWT, matriz por perfil, CRUD completo de usuários (inclui editar e excluir) |
+| **`aluno-service`** | Azure App Service + Azure Cosmos DB for MongoDB (vCore) | Pronto; inicialização resiliente (Service Bus e migração de ids não derrubam a subida); `retryWrites=false` |
+| **`turma-service`** | Azure App Service + Azure SQL (`turma-db`) | Pronto; turmas, disciplinas, professores, matrículas, **chamadas e presenças**; CRUD com edição de chamada; Outbox |
 | ~~`chamada-service`~~ | — | **Removido** (incorporado ao `turma-service`) |
 
 # 1. Introdução e Objetivos
@@ -35,7 +35,7 @@ O projeto foi projetado como uma **Arquitetura Orientada a Microserviços e Micr
 
 ### Principais Atores e Funcionalidades
 
-* **Administrador:** Autentica-se no sistema e mantém os cadastros: alunos, professores, disciplinas, turmas, matrículas (aluno ↔ turma) e logins de acesso. Tem acesso a todas as telas.
+* **Administrador:** Autentica-se no sistema e mantém os cadastros. Na aba **Usuários** cria alunos, professores e administradores (o cadastro do aluno/professor e o login são criados juntos); em **Chamadas → Gerenciar turmas** cria disciplinas e turmas e matricula os alunos. Tem acesso a todas as telas.
 
 * **Professor:** Autentica-se no sistema, consulta suas turmas e disciplinas vinculadas, visualiza a lista de alunos matriculados nelas, registra chamadas com a marcação individual de presença/ausência e consulta o histórico de chamadas realizadas. Não tem acesso a cadastros.
 
@@ -54,10 +54,10 @@ O projeto foi projetado como uma **Arquitetura Orientada a Microserviços e Micr
 | **RF07** | Calcular e exibir o total de faltas e o percentual de frequência acumulada do aluno. | Aluno | Alta | Implementado |
 | **RF08** | Exibir alerta visual ostensivo quando a frequência calculada do aluno for inferior a $75\%$. | Aluno | Alta | Implementado |
 | **RF09** | Tratar adequadamente cenários sem chamadas registradas, evitando divisão por zero no cálculo. | Sistema | Alta | Implementado |
-| **RF10** | Permitir ao administrador cadastrar, editar e excluir alunos. | Administrador | Alta | Implementado |
-| **RF11** | Permitir ao administrador matricular e remover alunos de turmas. | Administrador | Alta | Implementado |
-| **RF12** | Permitir ao administrador criar logins vinculados a alunos e professores, ativar/desativar e redefinir senha. | Administrador | Alta | Implementado |
-| **RF13** | Permitir ao administrador cadastrar professores, disciplinas e turmas. | Administrador | Média | API pronta; ainda sem tela (via Swagger) |
+| **RF10** | Permitir ao administrador cadastrar, editar e excluir alunos. | Administrador | Alta | Implementado (cadastro pela aba Usuários; edição/exclusão pela API) |
+| **RF11** | Permitir ao administrador matricular e remover alunos de turmas. | Administrador | Alta | Implementado (Chamadas → Gerenciar turmas) |
+| **RF12** | Permitir ao administrador criar, editar e excluir logins de alunos, professores e administradores, ativar/desativar e redefinir senha. | Administrador | Alta | Implementado |
+| **RF13** | Permitir ao administrador cadastrar, editar e excluir professores, disciplinas, turmas e chamadas. | Administrador | Média | Implementado (cadastros pela tela; edição e exclusão pela API) |
 
 **Regras de negócio**
 
@@ -70,7 +70,9 @@ O projeto foi projetado como uma **Arquitetura Orientada a Microserviços e Micr
 | **RN10** | Um aluno tem no máximo uma presença por chamada |
 | **RN11** | Só alunos matriculados na turma podem ter presença registrada na chamada dessa turma |
 | **RN12** | Chamada finalizada não pode ser alterada nem excluída |
-| **RN13** | Não é possível excluir turma com chamadas, nem aluno matriculado em turma |
+| **RN13** | Não é possível excluir turma com chamadas, disciplina ou professor vinculados a turma, nem aluno matriculado em turma |
+| **RN14** | Código de disciplina é único; não há duas turmas com o mesmo nome na mesma disciplina; não há dois logins com o mesmo usuário |
+| **RN15** | O sistema nunca fica sem administrador ativo (não é possível excluir nem rebaixar o único ADMIN, nem excluir o próprio usuário) |
 
 ## 1.3 Objetivos de Qualidade
 
@@ -92,7 +94,7 @@ Com base na norma **ISO/IEC 25010**, os principais objetivos de qualidade direci
 | **Professores** | `professores@escola.edu.br` | Interface rápida e responsiva para lançamento de presenças em sala de aula, sem lentidões. |
 | **Alunos** | `alunos@escola.edu.br` | Transparência total no cálculo de faltas e percentual de presença com alertas visuais prévios. |
 | **Equipe de Desenvolvimento (Grupo 7)** | `devs@grupo7.edu.br` | Arquitetura modular limpa (Hexagonal Architecture), repositórios separados no GitHub e facilidade para testes unitários/arquiteturais. |
-| **Professor Avaliador** | `docente@universidade.edu.br` | Conformidade estrita aos requisitos da atividade (BFF, Microservices, Microfrontends, Database per Service, Azure Service Bus, ArchUnit, C4 Model completo no arc42, somente o host publicado no Static Web Apps). |
+| **Professor Avaliador** | `docente@universidade.edu.br` | Conformidade estrita aos requisitos da atividade (BFF, Microservices, Microfrontends, Database per Service, Azure Service Bus, ArchUnit, C4 Model completo no arc42, somente o host publicado). |
 
 # 2. Restrições Arquiteturais
 
@@ -111,7 +113,7 @@ As restrições abaixo delimitam as decisões de design, implementação e impla
 | **Prazo Semestral de Entrega** | Calendário Acadêmico | A solução completa deve ser projetada, desenvolvida, testada e implantada na nuvem até a data limite da avaliação. |
 | **Tamanho da Equipe** | Organização do Grupo | A equipe é composta por 3 integrantes, exigindo forte divisão de responsabilidades entre 3 repositórios GitHub (Frontend, Gateway/BFF e Backend). |
 | **Tecnologias Obrigatórias** | Ementa da Disciplina | Uso obrigatório de Java Spring Boot, React (Vite + Module Federation), API Gateway/BFF, Azure Service Bus, Azure App Service e testes automatizados (incluindo ArchUnit). |
-| **Somente o Host no Static Web Apps** | Requisito do Professor | Por segurança, apenas o `host` é publicado; os microfrontends remotos são servidos como arquivos estáticos dentro dele (`/remotes/<mfe>/`). |
+| **Somente o Host publicado** | Requisito do Professor | Por segurança, apenas o `host` é publicado; os microfrontends remotos são servidos como arquivos estáticos dentro dele (`/remotes/<mfe>/`). Pensado para o Static Web Apps; hoje o host roda em um App Service (ADR-13). |
 | **Demonstração em Vídeo** | Critério de Avaliação | Apresentação em vídeo publicado no YouTube (não listado) com todos os integrantes com câmera aberta demonstrando a aplicação em nuvem (sem utilizar localhost). |
 
 ## 2.3 Restrições Técnicas
@@ -129,7 +131,8 @@ As restrições abaixo delimitam as decisões de design, implementação e impla
 | ----- | ----- | ----- |
 | **Créditos Acadêmicos Azure** | Microsoft Azure for Students | Toda a infraestrutura na nuvem deve operar dentro da cota gratuita fornecida para contas de estudantes. |
 | **Azure SQL Database Free Tier** | Microsoft Azure | Recursos limitados por instância de banco relacional (`turma-service` e usuários do Gateway). Exige consultas enxutas e pools de conexão pequenos (máx. 5). Bancos *serverless* podem pausar e demorar a responder na primeira conexão. Motivou a fusão do `chamada-service` no `turma-service` (um banco a menos). |
-| **Azure Cosmos DB / DocumentDB (API MongoDB)** | Microsoft Azure | Substituiu o MongoDB Atlas M0. Acesso pelo protocolo MongoDB com a *Primary Connection String*. |
+| **Azure Cosmos DB for MongoDB (vCore)** | Microsoft Azure | Substituiu o MongoDB Atlas M0. Acesso pelo protocolo MongoDB (`mongodb+srv://`); exige firewall liberado para o App Service, `retryWrites=false` e nenhum índice único criado automaticamente. |
+| **Regiões permitidas (Azure for Students)** | Microsoft Azure | Política da assinatura limita as regiões (`italynorth`, `francecentral`, `spaincentral`, `canadacentral`, `mexicocentral`). O **Static Web Apps não está disponível em nenhuma delas**, por isso o frontend roda em App Service. |
 | **App Service (planos de baixo custo)** | Microsoft Azure | Planos gratuitos hibernam após inatividade; com vários apps no mesmo plano a inicialização da JVM fica lenta. |
 
 # 3. Contexto e Escopo
@@ -165,7 +168,7 @@ flowchart TB
         Cosmos[("Azure Cosmos DB<br/>(API MongoDB - Alunos)")]
         AzureSQL[("Azure SQL Databases<br/>(Usuários, Turmas e Chamadas)")]
         ServiceBus["Azure Service Bus<br/>(Message Broker AMQP)"]
-        AzureHosting["Azure Cloud Hosting Services<br/>(Static Web Apps & App Services)"]
+        AzureHosting["Azure Cloud Hosting Services<br/>(App Services)"]
     end
 
     Admin -->|"Gerencia cadastros e acessos (HTTPS)"| System
@@ -199,10 +202,10 @@ flowchart TB
 
     subgraph SystemBoundary ["Sistema de Controle de Chamadas Escolar"]
 
-        subgraph Frontends ["Camada de Microfrontends (React 19 + Vite + Module Federation) - publicada no Azure Static Web Apps"]
+        subgraph Frontends ["Camada de Microfrontends (React 19 + Vite + Module Federation) - host publicado em Azure App Service"]
             MfeHost["host (Porta 5173)<br/>Shell: login, sessão, abas por perfil, tela de Usuários"]
-            MfeAlunos["alunos (Porta 5174)<br/>Gestão/matrícula (admin), alunos da turma (professor), Meus dados (aluno)"]
-            MfeChamadas["chamadas (Porta 5175)<br/>Chamadas das turmas permitidas"]
+            MfeAlunos["alunos (Porta 5174)<br/>Consulta: todos (admin), alunos das turmas (professor), próprios dados (aluno)"]
+            MfeChamadas["chamadas (Porta 5175)<br/>Chamadas das turmas permitidas + Gerenciar turmas (admin)"]
             MfeRegistro["registro-presenca (Porta 5176)<br/>Registro de presença em lote"]
         end
 
@@ -254,13 +257,15 @@ A interface web é dividida em pequenas aplicações React 19 independentes mant
 
 * **`host` (Porta 5173):** Atua como container/shell principal: login, sessão (expira junto com o JWT), abas visíveis conforme o perfil, tela de **Usuários** (somente administrador) e carregamento dos remotos com novas tentativas e isolamento de falhas (*error boundary*).
 
-* **`alunos` (Porta 5174):** Microfrontend com uma visão por perfil: gestão de alunos e matrículas (administrador), alunos das turmas do professor (professor) e "Meus dados" com a frequência por disciplina (aluno).
+* **`alunos` (Porta 5174):** Microfrontend **somente de consulta**, primeira aba do sistema: todos os alunos com filtro por turma e frequência (administrador), alunos das turmas do professor (professor) e os próprios dados com a frequência por disciplina (aluno).
 
-* **`chamadas` (Porta 5175):** Microfrontend dedicado à listagem, criação e exclusão de chamadas das turmas permitidas.
+* **`chamadas` (Porta 5175):** Microfrontend de listagem, criação e exclusão de chamadas das turmas permitidas. Para o administrador inclui o painel **Gerenciar turmas** (criar disciplina, criar turma ligando disciplina e professor, matricular/remover alunos e excluir turma).
+
+* **Tela de Usuários (no `host`, somente administrador):** cadastro unificado por tipo — **Aluno** (nome, matrícula, e-mail, login e senha), **Professor** (nome, e-mail, login e senha) e **Administrador** (login e senha). O host cria primeiro o aluno no `aluno-service` ou o professor no `turma-service` e depois o login no Gateway; se o login falhar, o cadastro recém-criado é desfeito.
 
 * **`registro-presenca` (Porta 5176):** Componente remoto aberto a partir do microfrontend `chamadas` para registrar a presença da turma inteira em uma única operação (ou visualizar, se a chamada já foi finalizada).
 
-Em produção, **somente o `host` é publicado** no Azure Static Web Apps; os remotos são compilados e copiados para `/remotes/<mfe>/assets/` dentro dele, na mesma origem.
+Em produção, **somente o `host` é publicado** (em um Azure App Service Node com `pm2 serve --spa`, ver ADR-13); os remotos são compilados e copiados para `/remotes/<mfe>/assets/` dentro dele, na mesma origem.
 
 ## 4.2 API Gateway & Backend for Frontend (BFF)
 
@@ -282,7 +287,7 @@ A consolidação de dados para o painel do aluno (turmas + chamadas) é feita no
 
 Cada microserviço possui autonomia absoluta de armazenamento:
 
-1. **`aluno-service`:** Utiliza **Azure Cosmos DB (API MongoDB)**, orientado a documentos, ideal para o armazenamento de perfis cadastrais. Ids numéricos (`Long`) gerados por sequência atômica.
+1. **`aluno-service`:** Utiliza **Azure Cosmos DB for MongoDB (vCore)**, orientado a documentos, banco `chamadas_alunos` com as coleções `alunos` e `contadores`. Ids numéricos (`Long`) gerados por sequência atômica na coleção `contadores`.
 
 2. **`turma-service`:** Utiliza **Azure SQL Database** (relacional) para professores, disciplinas, turmas, **matrículas, chamadas e presenças**. Por estarem no mesmo banco, chamadas têm chave estrangeira para turmas e presenças para chamadas.
 
@@ -311,9 +316,9 @@ A decomposição lógica do sistema é apresentada através dos seus blocos func
 ```mermaid
 flowchart TB
     subgraph ClientLayer ["Bloco de Apresentação (Microfrontends UI)"]
-        UI_Shell["Shell Manager<br/>(Login, sessão, abas por perfil, Usuários)"]
-        UI_Aluno["Módulo UI Alunos<br/>(Gestão, matrícula, frequência & alerta abaixo de 75%)"]
-        UI_Chamada["Módulo UI Chamada & Registro<br/>(Turmas e registro de presença em lote)"]
+        UI_Shell["Shell Manager<br/>(Login, sessão, abas por perfil, cadastro unificado de Usuários)"]
+        UI_Aluno["Módulo UI Alunos<br/>(Consulta por perfil, frequência & alerta abaixo de 75%)"]
+        UI_Chamada["Módulo UI Chamada & Registro<br/>(Gerenciar turmas, chamadas e presença em lote)"]
     end
 
     subgraph GatewayLayer ["Bloco de Orquestração (API Gateway / BFF)"]
@@ -438,10 +443,10 @@ com.sistema.[servico]
 ```
 com.sistemadechamada_apigateway.gateway
 ├── controller      # AuthController (login, /me), UsuarioController (somente ADMIN)
-├── service         # UsuarioService (autenticação BCrypt, cadastro de logins)
+├── service         # UsuarioService (autenticação BCrypt; criar, editar, excluir, ativar e senha de logins)
 ├── repository      # UsuarioRepository (JDBC, executado fora das threads reativas)
 ├── model           # Usuario, Role, UsuarioAutenticado
-├── dto             # LoginRequest/Response, CriarUsuario, AlterarSenha, UsuarioResponse
+├── dto             # LoginRequest/Response, CriarUsuario, AtualizarUsuario, AlterarSenha, UsuarioResponse
 ├── security        # JwtTokenProvider, JwtAuthenticationWebFilter, RegrasDeAcesso (matriz por perfil)
 ├── filter          # UsuarioHeadersGlobalFilter (BFF de identidade)
 ├── config          # SecurityConfig (CORS, Actuator, autorização), AdminInicialSeeder
@@ -455,16 +460,14 @@ Regras verificadas por ArchUnit: controller não acessa repository; model não d
 ```
 frontend/
 ├── host/                 # Shell (único publicado)
-│   ├── src/App.jsx       # Abas por perfil + RemoteBoundary + lazy com novas tentativas
-│   ├── src/config/       # perfis.js (abas por perfil), lazyRemoto.js (novas tentativas)
-│   ├── src/components/   # Login, Usuarios (ADMIN), RemoteBoundary
+│   ├── src/App.jsx       # Abas por perfil (Alunos, Chamadas, Usuários) + RemoteBoundary + lazy com novas tentativas
+│   ├── src/components/   # Login, Usuarios (cadastro unificado, ADMIN), RemoteBoundary
+│   ├── src/services/     # authService.js (login, sessão)
 │   ├── src/api/          # fetchWithAuth.js (sessão, JWT, 401 -> login)
-│   └── public/staticwebapp.config.json   # Única configuração lida pelo Static Web Apps
+│   └── public/staticwebapp.config.json   # CSP para o Static Web Apps (não usada no App Service)
 ├── alunos/  chamadas/  registro-presenca/   # Remotos
-│   ├── src/components/   # Componente exposto via Module Federation
-│   ├── src/utils/        # Funções puras (testadas)
-│   ├── src/api/          # Cópia idêntica do fetchWithAuth.js
-│   └── tests/            # Testes unitários e de arquitetura (node:test)
+│   ├── src/components/   # Componente exposto via Module Federation (chamadas inclui GestaoTurmas.jsx)
+│   └── src/api/          # Cópia idêntica do fetchWithAuth.js
 ```
 
 ## 5.3 Nível 3 - Modelo de Domínio e Relacionamentos Conceituais
@@ -593,7 +596,7 @@ sequenceDiagram
 
 ## 6.3 Consulta de Frequência pelo Aluno
 
-1. O aluno abre "Meus dados"; o MFE `alunos` chama `GET /api/alunos/{seuId}` e `GET /api/presencas/aluno/{seuId}`.
+1. O aluno entra no sistema e abre a aba **Alunos** (a única do perfil); o MFE `alunos` chama `GET /api/alunos/{seuId}` e `GET /api/presencas/aluno/{seuId}`.
 2. O Gateway só permite esses caminhos se o `{seuId}` for igual ao `refId` do token.
 3. O `turma-service` busca localmente as turmas do aluno (matrículas) e calcula, para cada uma, presenças, faltas, percentual e alerta ($<75\%$) com o `CalculadorFrequenciaDomainService`.
 
@@ -605,6 +608,32 @@ Exceção no consumidor (`aluno-service`) → a mensagem é devolvida (`abandon`
 
 O host encerra a sessão quando o JWT vence; qualquer resposta 401 de um microfrontend também dispara o evento de sessão encerrada e o usuário volta ao login com o aviso "Sua sessão expirou".
 
+## 6.6 Cadastro Unificado de Usuário (aluno ou professor + login)
+
+```mermaid
+sequenceDiagram
+    participant A as Administrador (host - aba Usuários)
+    participant G as API Gateway
+    participant S as aluno-service / turma-service
+    A->>A: login já existe na lista? (validação prévia)
+    A->>G: POST /api/alunos (ou /api/professores)
+    G->>S: cria o aluno (Cosmos DB) ou o professor (Azure SQL)
+    S-->>A: 201 com o id
+    A->>G: POST /api/auth/usuarios (login, senha, perfil, referenciaId = id)
+    alt login criado
+        G-->>A: 201
+    else erro (ex.: login repetido)
+        G-->>A: 409
+        A->>G: DELETE /api/alunos/{id} (ou /api/professores/{id}) - desfaz o cadastro
+    end
+```
+
+## 6.7 Primeira Chamada (administrador)
+
+1. **Usuários:** cria o professor e os alunos.
+2. **Chamadas → Gerenciar turmas:** cria a disciplina, cria a turma (disciplina + professor) e matricula os alunos.
+3. **+ Criar chamada:** escolhe a turma, data e horário (`LocalTime`, coluna `TIME`); o professor registra a presença em lote e finaliza.
+
 # 7. Visão de Implantação (Deployment View)
 
 ```mermaid
@@ -615,14 +644,14 @@ flowchart TB
         RepoB["SistemaDeChamada_backend"]
     end
 
-    subgraph Azure ["Microsoft Azure (nova assinatura de estudante)"]
-        SWA["Static Web Apps<br/>host + /remotes/*"]
+    subgraph Azure ["Microsoft Azure (assinatura de estudante - mexicocentral)"]
+        SWA["App Service (Node 20)<br/>host + /remotes/*"]
         AppG["App Service<br/>api-gateway"]
         AppA["App Service<br/>aluno-service"]
         AppT["App Service<br/>turma-service"]
         SQLU[("Azure SQL<br/>gateway-db (usuários)")]
         SQLT[("Azure SQL<br/>turma-db")]
-        COS[("Cosmos DB<br/>alunos")]
+        COS[("Cosmos DB for MongoDB vCore<br/>chamadas_alunos")]
         SB["Service Bus<br/>chamadas-topic"]
     end
 
@@ -642,10 +671,10 @@ flowchart TB
 | # | Recurso | Observação |
 | ----- | ----- | ----- |
 | 1 | **Azure SQL** (1 servidor, 2 bancos: `gateway-db` e `turma-db`) | Rede: "Permitir que serviços e recursos do Azure acessem este servidor"; TLS mínimo 1.2. Tabelas criadas pelo Flyway |
-| 2 | **Azure Cosmos DB (API MongoDB)** | Banco do `aluno-service` |
+| 2 | **Azure Cosmos DB for MongoDB (vCore)** | Banco do `aluno-service`; liberar no firewall o acesso dos serviços do Azure |
 | 3 | **Service Bus** | Tópico `chamadas-topic` com a subscription `aluno-service-sub` |
-| 4 | **3 App Services (Java 17)** | `api-gateway`, `aluno-service`, `turma-service` |
-| 5 | **Static Web Apps** | Somente o `host`; o Azure gera um novo workflow e secret de deploy |
+| 4 | **3 App Services (Java 17)** | `api-gateway`, `aluno-service`, `turma-service`. A porta vem de `PORT` (Linux) ou `HTTP_PLATFORM_PORT` (Windows, no `aluno-service`) |
+| 5 | **App Service (Node 20) para o frontend** | `app-frontend-chamadas`, comando de inicialização `pm2 serve /home/site/wwwroot --no-daemon --spa` (Static Web Apps indisponível nas regiões permitidas) |
 
 ## 7.2 Variáveis de Ambiente (lista completa)
 
@@ -655,27 +684,30 @@ flowchart TB
 | `GATEWAY_DB_URL` | x | | | JDBC do `gateway-db` |
 | `GATEWAY_DB_USER`, `GATEWAY_DB_PASSWORD` | x | | | Credenciais do Azure SQL |
 | `ADMIN_INITIAL_PASSWORD` | x | | | Senha do primeiro admin (8+ caracteres); pode ser removida após o primeiro acesso |
-| `FRONTEND_URL` | x | | | URL do Static Web Apps (liberada no CORS) |
+| `FRONTEND_URL` | x | | | URL do App Service do frontend, com `https` e sem barra no fim (liberada no CORS) |
 | `ALUNO_SERVICE_URL` | x | | x | `https://<app do aluno-service>.azurewebsites.net` |
 | `TURMA_SERVICE_URL` | x | x | | `https://<app do turma-service>.azurewebsites.net` |
-| `SPRING_DATA_MONGODB_URI` | | x | | Primary Connection String do Cosmos DB |
+| `SPRING_DATA_MONGODB_URI` | | x | | Connection string do Cosmos DB (`mongodb+srv://...`) |
+| `JAVA_OPTS` | | x | | Opcional: `-Xms256m -Xmx512m` (limite de memória da JVM) |
 | `AZURE_SQL_URL` | | | x | JDBC do `turma-db` |
 | `AZURE_SQL_USERNAME`, `AZURE_SQL_PASSWORD` | | | x | Credenciais do Azure SQL |
 | `AZURE_SERVICEBUS_CONNECTION_STRING` | | x | x | Connection string do namespace do Service Bus |
 
-No GitHub do frontend: variável `VITE_API_URL` = URL do `api-gateway`.
+No GitHub do frontend: variável `VITE_API_URL` = URL do `api-gateway` (o workflow força `https://` e remove barra final).
 
-Formato das URLs JDBC: `jdbc:sqlserver://<servidor>.database.windows.net:1433;database=<banco>;encrypt=true;trustServerCertificate=false;hostNameInCertificate=*.database.windows.net;loginTimeout=30;`
+Formato das URLs JDBC: `jdbc:sqlserver://<servidor>.database.windows.net:1433;database=<banco>;encrypt=true;trustServerCertificate=false;hostNameInCertificate=*.database.windows.net;loginTimeout=30;`. No `turma-service`, o `sendTimeAsDatetime=false` já é aplicado pelas propriedades da conexão (Hikari), para o horário da chamada ser enviado como `TIME`.
 
 ## 7.3 Pipelines (GitHub Actions)
 
 | Repositório | Gatilho | Etapas |
 | ----- | ----- | ----- |
-| `api-gateway` | push em `main` | `mvn verify` (testes) → deploy |
-| `backend` | push em `master`, **somente a pasta do serviço alterado** (`aluno-service` ou `turma-service`) | `mvn verify` → deploy daquele serviço |
-| `frontend` | push em `main` | build dos remotos e do host → verifica `remoteEntry.js` → injeta a URL do Gateway na CSP → deploy somente do host |
+| `api-gateway` | push em `main` | `mvn verify` (testes) → deploy com o perfil de publicação (`AZURE_PUBLISH_PROFILE_GATEWAY`) |
+| `backend` | push em `master`, **somente a pasta do serviço alterado** (`aluno-service` ou `turma-service`) | `mvn verify` → deploy daquele serviço (`AZURE_PUBLISH_PROFILE_ALUNO` / `AZURE_PUBLISH_PROFILE_TURMA`) |
+| `frontend` | push em `main` | normaliza `VITE_API_URL` (https) → build dos remotos e do host → verifica `remoteEntry.js` → deploy de `frontend/host/dist` no App Service (`AZURE_PUBLISH_PROFILE_FRONTEND`) |
 
-**Ordem do primeiro deploy:** `api-gateway` → `turma-service` → `aluno-service` → frontend.
+Os deploys usam o **perfil de publicação** de cada App Service guardado como *secret* do repositório (o Centro de Implantação do Azure não conseguiu criar os *secrets* de identidade nos forks).
+
+**Ordem do primeiro deploy:** `api-gateway` → `turma-service` → `aluno-service` → frontend. Execução local: ver `docs/EXECUCAO_LOCAL.md`.
 
 # 8. Conceitos Transversais (Cross-cutting Concepts)
 
@@ -686,12 +718,12 @@ Formato das URLs JDBC: `jdbc:sqlserver://<servidor>.database.windows.net:1433;da
 
 | Perfil | Pode | Não pode |
 | ----- | ----- | ----- |
-| **ADMIN** | Tudo, incluindo cadastros, matrículas e logins | — |
-| **PROFESSOR** | Ler alunos, turmas e chamadas **das suas turmas**; criar, registrar, finalizar e excluir chamadas abertas | Qualquer cadastro; dados de turmas de outros professores |
+| **ADMIN** | Tudo, incluindo cadastros, matrículas e logins (criar, editar, excluir) | Excluir o próprio login ou deixar o sistema sem ADMIN ativo |
+| **PROFESSOR** | Ler alunos, turmas e chamadas **das suas turmas**; criar, editar (data/horário), registrar, finalizar e excluir chamadas abertas | Qualquer cadastro; dados de turmas de outros professores |
 | **ALUNO** | Ler os próprios dados, turmas e frequência (`/api/alunos/{seuId}`, `/api/turmas/aluno/{seuId}`, `/api/presencas/aluno/{seuId}`) | Qualquer escrita; dados de outros alunos |
 
 * **Superfície reduzida:** Actuator só com `health`; CORS restrito às origens do `application.yml`; microserviços sem CORS.
-* **Frontend:** sessão no `sessionStorage`, encerrada ao expirar o token ou receber 401; *Content Security Policy* restringe scripts à própria origem e conexões ao Gateway.
+* **Frontend:** sessão no `sessionStorage`, encerrada ao expirar o token ou receber 401. A *Content Security Policy* do `staticwebapp.config.json` só é aplicada no Static Web Apps; no App Service atual ela não é enviada (ver riscos).
 
 ## 8.2 Tratamento de Erros
 
@@ -699,7 +731,9 @@ Todos os serviços respondem erros em JSON com `status`, `erro`, `mensagem`, `se
 
 ## 8.3 Persistência e Esquema
 
-* **Flyway** em todos os bancos SQL (`src/main/resources/db/migration`); Hibernate com `ddl-auto=none`. No `turma-service`: V1 (professores, disciplinas, turmas), V2 (matrículas e aulas ministradas), V3 (chamadas e presenças), V4 (Outbox).
+* **Flyway** em todos os bancos SQL (`src/main/resources/db/migration`); Hibernate com `ddl-auto=none`. No `turma-service`: V1 (professores, disciplinas, turmas), V2 (matrículas e aulas ministradas), V3 (chamadas e presenças), V4 (Outbox), V5 (`chamadas.horario` garantido como `TIME NOT NULL`, recriando a restrição única).
+* **Horário da chamada:** `LocalTime` no domínio e na entidade (`columnDefinition = "TIME"`); o driver do SQL Server usa `sendTimeAsDatetime=false`, senão compara `TIME` com `DATETIME` e a criação da chamada falha.
+* **Cosmos DB (`aluno-service`):** `spring.data.mongodb.auto-index-creation=false`, sem `@Indexed(unique = true)`; unicidade de matrícula e e-mail validada no caso de uso; cliente com `retryWrites=false`; listagem ordenada em memória (sem `sort` no banco).
 * Integridade no banco do `turma-service`: chamada → turma (FK, sem exclusão em cascata: turma com chamadas não pode ser excluída); uma chamada por turma/data/horário; presença → chamada (FK); presença única por (chamada, aluno); matrícula com chave (turma, aluno).
 * A matrícula do aluno na turma da chamada é validada pela aplicação antes de gravar a presença.
 
@@ -711,16 +745,16 @@ Padrão **Outbox** no `turma-service` (tabela `outbox_eventos`, envio a cada 5 s
 
 | Repositório | Testes |
 | ----- | ----- |
-| `api-gateway` | Unitários (JWT, login, matriz por perfil, headers de identidade) |
+| `api-gateway` | Unitários (JWT, login, matriz por perfil, headers de identidade, edição e exclusão de usuários) |
 | `backend` / `aluno-service` | Unitários (regras por perfil, unicidade, integridade) + **ArchUnit** (domínio isolado) |
-| `backend` / `turma-service` | **3 regras ArchUnit** (domínio puro; aplicação sem dependência de adaptadores; entrada sem acesso à saída) + **5 testes unitários** (exclusão de turma com chamadas, acesso do professor, presença em lote só de matriculados, finalização com aulas ministradas e Outbox, cálculo de frequência) |
-| `frontend` | Planejado: 3 testes de arquitetura e 3 a 5 unitários por microfrontend |
+| `backend` / `turma-service` | **3 regras ArchUnit** (domínio puro; aplicação sem dependência de adaptadores; entrada sem acesso à saída) + **5 testes unitários** (exclusão de turma com chamadas, acesso do professor, presença em lote só de matriculados, finalização com aulas ministradas e Outbox, cálculo de frequência) + **3 de edição** (editar chamada, chamada finalizada/horário repetido, código de disciplina repetido) |
+| `frontend` | Ainda sem testes versionados (ver riscos) |
 
 Os testes rodam nos pipelines antes do deploy; teste falhando bloqueia a publicação.
 
 ## 8.6 Configuração e Observabilidade
 
-Valores sensíveis somente por variável de ambiente, sem valor padrão no código: se faltar, o serviço **não sobe** e o erro aparece no deploy. Logs consultados no **Log stream** do App Service.
+Valores sensíveis somente por variável de ambiente, sem valor padrão no código: se faltar, o serviço **não sobe** e o erro aparece no deploy. Exceção deliberada no `aluno-service`: sem Service Bus, ou com falha no Cosmos DB durante a migração de ids na subida, o serviço **sobe mesmo assim** e registra o problema no log (evita 502 por um recurso secundário). Logs consultados no **Fluxo de log** do App Service.
 
 # 9. Decisões de Arquitetura (ADRs)
 
@@ -738,6 +772,10 @@ Valores sensíveis somente por variável de ambiente, sem valor padrão no códi
 | **ADR-10** | Testes do frontend com `node:test` | Vitest / Jest | Sem novas dependências nem alteração do `package-lock.json` |
 | **ADR-11** | Deploy do backend filtrado por pasta | Deploy de todos os serviços a cada push | Economia de build e de reinícios |
 | **ADR-12** | Incorporar o `chamada-service` ao `turma-service` (mesmo banco Azure SQL) | Manter 3 serviços de backend | Menos 1 App Service e 1 banco na nova assinatura de estudante; o `turma-service` já era estável no Azure enquanto o `chamada-service` falhava na conexão TLS; turma, matrícula, chamada e presença são o mesmo contexto de negócio, e as validações deixam de ser chamadas HTTP |
+| **ADR-13** | Frontend em **App Service (Node, `pm2 serve --spa`)** | Static Web Apps; Storage static website | O Static Web Apps não está disponível nas regiões permitidas pela assinatura de estudante; o App Service usa o mesmo modelo de deploy dos serviços e mantém o build (host + `/remotes/*`) |
+| **ADR-14** | Cadastro de aluno/professor junto com o login, orquestrado pelo host, com compensação | Selecionar um aluno/professor já existente; orquestrar no Gateway | Um formulário só por tipo de usuário; sem alterar o Gateway; se o login falhar, o cadastro criado é apagado |
+| **ADR-15** | Deploy por perfil de publicação (*publish profile*) | Identidade federada (OIDC) do Centro de Implantação | Os *secrets* de identidade não eram criados nos forks; o perfil de publicação é configurado manualmente, um por App Service |
+| **ADR-16** | Inicialização resiliente do `aluno-service` | Falhar a subida sem Service Bus/Cosmos | Recursos secundários indisponíveis não podem derrubar o serviço (502); o problema fica registrado no log |
 
 # 10. Requisitos de Qualidade
 
@@ -785,21 +823,23 @@ flowchart LR
 | ----- | ----- | ----- |
 | `turma-service` concentra turmas e chamadas | Mais carga e mais responsabilidade em um único serviço | Aceitável no volume atual; separar novamente se a escala exigir |
 | `aluno-service` consome `ChamadaFinalizada` apenas com registro em log | Mensageria sem efeito de negócio no consumidor | Usar o evento para notificar o aluno ou atualizar um resumo de frequência |
-| Professores, disciplinas e turmas sem tela (apenas Swagger) | Operação manual pelo administrador | Criar microfrontend de turmas |
+| Edição/exclusão de turma, disciplina, chamada e usuário só pela API | Correções exigem Swagger | Adicionar botões de editar/excluir nas telas |
 | Testes do frontend ainda não versionados | Regressões no frontend não bloqueiam o deploy | Implementar o escopo acordado (3 de arquitetura + 3 a 5 unitários por MFE) |
 | Host no Vite 8 e remotos no Vite 7 | Possível incompatibilidade do Module Federation no host | Padronizar no Vite 7 se houver erro de build |
 | Segredo JWT compartilhado (HS256) | Vazamento em um serviço compromete todos | Evoluir para chaves assimétricas (RS256/JWKS) ou Microsoft Entra ID |
 | URLs públicas dos App Services | Exposição desnecessária (mitigada pelo JWT) | Restrições de acesso / VNet aceitando apenas o Gateway |
 | Sem *refresh token* | Novo login a cada 8 h | Aceitável no escopo atual |
 | Planos gratuitos hibernam | Primeira requisição lenta; agendador do Outbox para | Plano Basic com *Always On* |
-| *Content Security Policy* restritiva | Recurso inline novo pode deixar a tela em branco | Ajustar a CSP no `staticwebapp.config.json` do host |
+| Sem *Content Security Policy* no App Service do frontend | Menos proteção contra scripts injetados | Enviar os cabeçalhos pelo servidor do host ou voltar ao Static Web Apps se a região permitir |
+| Perfil de publicação já exposto em um commit do fork do frontend | Quem tiver acesso ao histórico pode publicar no site | Redefinir o perfil de publicação no portal e atualizar o *secret* |
+| Cadastro de usuário em duas etapas no navegador | Se o navegador fechar entre as etapas, sobra um aluno/professor sem login | Orquestrar no Gateway em uma única chamada |
 
 # 12. Glossário
 
 | Termo | Definição |
 | ----- | ----- |
 | **BFF (Backend for Frontend)** | Camada entre o frontend e os serviços; aqui autentica, aplica as regras por perfil e repassa a identidade |
-| **Host / Shell** | Aplicação React que carrega os microfrontends; único item publicado no Static Web Apps |
+| **Host / Shell** | Aplicação React que carrega os microfrontends; único item publicado (App Service do frontend) |
 | **Microfrontend / Remoto** | Aplicação React carregada pelo host via Module Federation (`remoteEntry.js`) |
 | **JWT** | Token assinado que identifica o usuário, seu perfil e seu vínculo (`refId`) |
 | **refId / referenciaId** | Id do aluno ou do professor vinculado ao login |
@@ -817,3 +857,4 @@ flowchart LR
 | 1.0 | Novembro de 2026 | Versão inicial do documento (seções 1 a 5) |
 | 2.0 | 14/11/2026 | Inclusão do Administrador e dos RF10–RF13; login real com JWT e regras por perfil (BFF de identidade); segurança também nos microserviços; Cosmos DB no lugar do MongoDB Atlas; Java 17; ids de aluno `Long`; matrículas no `turma-service`; evento `ChamadaFinalizada` via Outbox no lugar de `MatriculaRealizada`; Flyway; presença em lote; publicação somente do host; diagramas C4 atualizados; seções 6 a 12 escritas; status atual e incidente do `chamada-service` |
 | 2.1 | 15/11/2026 | `chamada-service` incorporado ao `turma-service` (mesmo banco; validações locais; aulas ministradas na mesma transação; Outbox publicado pelo `turma-service` e consumido pelo `aluno-service`); Gateway roteando chamadas/presenças para o `turma-service` e com `FRONTEND_URL`; diagramas C2, C3, runtime e implantação atualizados; lista completa de variáveis para a nova assinatura; incidente do `chamada-service` encerrado |
+| 2.2 | 17/11/2026 | Sistema implantado na nova assinatura (`mexicocentral`); frontend em App Service (ADR-13); aba Alunos só de consulta e primeira do header; cadastro unificado de usuários (ADR-14); Gerenciar turmas (disciplina, turma, matrícula) na aba Chamadas; edição de chamada e de usuário, exclusão de usuário e regras 409 de duplicidade (RN14, RN15); correção `TIME` x `DATETIME` (V5 + `sendTimeAsDatetime=false`); Cosmos DB vCore com `retryWrites=false` e sem índices automáticos; inicialização resiliente do `aluno-service` (ADR-16); deploy por perfil de publicação (ADR-15); link do vídeo; execução local em `docs/EXECUCAO_LOCAL.md` |
